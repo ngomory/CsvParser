@@ -25,7 +25,14 @@ class CsvParser
     public array $keys = [];
     public $datas = [];
 
-    function __construct(string $file, string $separator = ';', array $options = ['header' => false, 'header_line' => 0, 'encoding' => false])
+    /**
+     * Undocumented function
+     *
+     * @param string $file [File path]
+     * @param string $separator [Data separator]
+     * @param array $options
+     */
+    function __construct(string $file, string $separator = ';', array $options = ['header' => true, 'header_line' => 0, 'encoding' => false])
     {
 
         /**
@@ -164,6 +171,12 @@ class CsvParser
         }
     }
 
+    /**
+     * Set header data
+     *
+     * @param array $keys
+     * @return CsvParser
+     */
     public function header(array $keys = []): CsvParser
     {
 
@@ -271,6 +284,12 @@ class CsvParser
         }
     }
 
+    /**
+     * chunk the datas
+     *
+     * @param integer $length
+     * @return CsvParser
+     */
     public function chunk(int $length): CsvParser
     {
 
@@ -283,6 +302,12 @@ class CsvParser
         return $this;
     }
 
+    /**
+     * Group the datas
+     *
+     * @param string $key
+     * @return CsvParser
+     */
     public function groupeBy(string $key): CsvParser
     {
 
@@ -302,10 +327,15 @@ class CsvParser
         return $this;
     }
 
-    public function orderBy(string $key, string $sens = 'DESC')
+    public function orderBy(string $key, string $sens = 'DESC'): CsvParser
     {
     }
 
+    /**
+     * Get the first item
+     *
+     * @return CsvParser
+     */
     public function first(): CsvParser
     {
 
@@ -317,6 +347,11 @@ class CsvParser
         return $this;
     }
 
+    /**
+     * Get the last item
+     *
+     * @return CsvParser
+     */
     public function last(): CsvParser
     {
 
@@ -330,6 +365,11 @@ class CsvParser
 
     //----------------------- Convertisseur -------------------//
 
+    /**
+     * Convert data to json
+     *
+     * @return CsvParser
+     */
     public function toJson(): CsvParser
     {
 
@@ -341,6 +381,12 @@ class CsvParser
         return $this;
     }
 
+    /**
+     * Convert datas to csv
+     *
+     * @param string $separator
+     * @return CsvParser
+     */
     public function toCsv(string $separator): CsvParser
     {
 
@@ -348,9 +394,21 @@ class CsvParser
             throw new Exception('Datas is not a array');
         }
 
-        return $this->datas;
+        $datas = $this->keys ?  implode($separator, $this->keys) . "\n" : null;
+        foreach ($this->datas as $data) {
+            $datas .= implode($separator, $data) . "\n";
+        }
+
+        $this->datas = $datas;
+
+        return $this;
     }
 
+    /**
+     * Convert datas to object
+     *
+     * @return CsvParser
+     */
     public function toObject(): CsvParser
     {
 
@@ -368,6 +426,11 @@ class CsvParser
         return $this;
     }
 
+    /**
+     * Convert data to sql
+     *
+     * @return CsvParser
+     */
     public function toSql(): CsvParser
     {
 
@@ -375,11 +438,35 @@ class CsvParser
             throw new Exception('Datas is not a array');
         }
 
-        return $this;
+        if (empty($this->keys)) {
+            throw new Exception('No header available');
+        }
+
+        $columns = implode(", ", $this->keys);
+
+        $values = null;
+        foreach ($this->datas as $data) {
+            $values .= ' ( ' . implode(', ', $data) . ' ),';
+        }
+
+        dd($values);
+
+        $values = array_values($this->datas[1]);
+        $values  = implode(", ", $values);
+        $sql = "INSERT INTO `fbdata`($columns) VALUES ($values)";
+
+        dd($sql);
+
+        //return $this;
     }
 
-    //----------------------- Fin de requete -------------------//
+    //----------------------- End of request -------------------//
 
+    /**
+     * Header keys
+     *
+     * @return array
+     */
     public function keys(): array
     {
 
@@ -390,6 +477,12 @@ class CsvParser
         return $this->keys;
     }
 
+    /**
+     * Calculates the sum of a key
+     *
+     * @param string $key
+     * @return float
+     */
     public function sum(string $key): float
     {
 
@@ -410,6 +503,11 @@ class CsvParser
         return $total;
     }
 
+    /**
+     * Count items in datas
+     *
+     * @return integer
+     */
     public function count(): int
     {
 
@@ -420,28 +518,38 @@ class CsvParser
         return count($this->datas);
     }
 
+    /**
+     * Save datas in file
+     *
+     * @param string $path [Dir path to save file]
+     * @param string $name [File name]
+     * @return boolean
+     */
     public function save(string $path = '.', string $name): bool
     {
 
         if (is_string($this->datas)) {
+            throw new Exception('Datas is not a string : json | csv');
+        }
 
-            if ($path == '.') {
+        if ($path == '.') {
 
-                $filename = $this->file_dir . '/' . $name;
-            } else {
-
-                $filename = realpath($path) . '/' . $name;
-            }
-
-            file_put_contents($filename, $this->datas);
-
-            return true;
+            $filename = $this->file_dir . '/' . $name;
         } else {
 
-            return false;
+            $filename = realpath($path) . '/' . $name;
         }
+
+        file_put_contents($filename, $this->datas);
+
+        return true;
     }
 
+    /**
+     * Get datas
+     *
+     * @return array|string|object
+     */
     public function get(): array|string|object
     {
         return $this->datas;
