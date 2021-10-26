@@ -13,32 +13,55 @@
 class CsvParser
 {
 
-    public $file;
-    public $separator;
-    public $header;
+    public string $separator;
+    public array $options;
 
-    public $file_tmp;
-    public $file_dir;
-    public $file_name;
-    public $file_ext;
-    public $file_fullname;
+    public string $file_tmp;
+    public string $file_dir;
+    public string $file_base;
+    public string $file_ext;
+    public string $file_name;
 
+    public array $keys = [];
     public $datas = [];
 
-    public function __construct(string $file, string $separator = ';', bool $header = false)
+    function __construct(string $file, string $separator = ';', array $options = ['header' => false, 'header_line' => 0, 'encoding' => false])
     {
 
-        $this->file = pathinfo(realpath($file));
-        $this->file_dir = $this->file['dirname'];
-        $this->file_name = $this->file['filename'];
-        $this->file_ext = $this->file['extension'];
-        $this->file_fullname = $this->file_name . '.' . $this->file_ext;
+        /**
+         * Check if a file is at real file
+         */
+        $path = realpath($file);
+        if (!is_file($path)) {
+            throw new Exception($path . ' Is not a file');
+        }
 
+        /**
+         * Detail of file
+         */
+        $file = pathinfo($path);
+        $this->file_dir = $file['dirname'];
+        $this->file_base = $file['filename'];
+        $this->file_ext = $file['extension'];
+        $this->file_name = $file['basename'];
+
+        /**
+         * Options
+         */
         $this->separator = $separator;
-        $this->header = $header;
+        $this->options = $options;
 
-        $this->setEncoding();
-        $this->setDatas();
+        /**
+         * Encoding source datas
+         */
+        if (isset($this->options['encoding']) && $this->options['encoding'] == true) {
+            $this->setEncoding();
+        }
+
+        /**
+         * setting a dats in $datas
+         */
+        $this->initDatas();
     }
 
     private function setEncoding()
@@ -46,148 +69,226 @@ class CsvParser
 
         try {
 
-            $encoding = exec('cd ' . $this->file_dir . ' && file -i ' . $this->file_fullname);
+            $encoding = exec('cd ' . $this->file_dir . ' && file -i ' . $this->file_name);
             $encoding = explode('charset=', $encoding);
             $encoding = trim(end($encoding));
-            $this->file_tmp = $this->file_name . '-' . time() . '.' . $this->file_ext;
-            exec('cd ' . $this->file_dir . ' && iconv -f ' . $encoding . ' -t utf-8 ' . $this->file_fullname . ' -o ' . $this->file_tmp);
+
+            $this->file_tmp = $this->file_base . '-' . time() . '.' . $this->file_ext;
+            $result = exec('cd ' . $this->file_dir . ' && iconv -f ' . $encoding . ' -t utf-8 ' . $this->file_name . ' -o ' . $this->file_tmp);
         } catch (\Throwable $th) {
 
             throw $th;
         }
     }
 
-    private function setDatas()
+    private function initDatas()
     {
 
-        $lines = file($this->file_dir . '/' . $this->file_tmp);
-        unlink($this->file_dir . '/' . $this->file_tmp);
+        /**
+         * 
+         */
+        if (isset($this->options['encoding']) && $this->options['encoding'] == true) {
+
+            $file = $this->file_dir . '/' . $this->file_tmp;
+            $lines = file($file);
+            unlink($file);
+        } else {
+
+            $lines = file($this->file_dir . '/' . $this->file_name);
+        }
+
+        /**
+         * 
+         */
+        $header_data = [];
+        if (isset($this->options['header']) && $this->options['header'] == true) {
+
+            $header_line = (isset($this->options['header_line']) && is_int($this->options['header_line'])) ? $this->options['header_line'] : 0;
+
+            if (isset($lines[$header_line])) {
+
+                $header_data = $lines[$header_line];
+                unset($lines[$header_line]);
+
+                $line = trim(strip_tags(str_replace(["\r", "\n"], ['', ''], $header_data)));
+                $values = explode($this->separator, $line);
+                $this->keys = $values;
+            }
+        }
 
         foreach ($lines as $item => $line) {
 
             // Netoyage
             $line = trim(strip_tags(str_replace(["\r", "\n"], ['', ''], $line)));
-
             $values = explode($this->separator, $line);
 
-            if ($item == 0 && $this->header == true) {
-                $keys = $values;
-                continue;
-            } elseif ($item == 0 && $this->header == false) {
-                $keys = [];
-            }
+            if (count($values) == count($this->keys)) {
 
-            if (count($values) == count($keys)) {
-
-                $this->datas[] = array_combine($keys, $values);
+                $this->datas[] = array_combine($this->keys, $values);
             } else {
 
                 $this->datas[] = $values;
             }
         }
+    }
 
-        return $this->datas;
+    //----------------------- Getter et Setter -------------------//
+
+
+
+    //----------------------- Instance -------------------//
+
+    public function partial(int $first = 0, int|string $end = ''): CsvParser
+    {
+
+        if (is_array($this->datas)) {
+            $datas = [];
+
+            foreach ($this->datas as $key => $value) {
+
+                if ($key >= $first && !is_int($end)) {
+
+                    $datas[] = $value;
+                } elseif ($key >= $first && is_int($end) && $key <= $end) {
+
+                    $datas[] = $value;
+                }
+            }
+
+            $this->datas = $datas;
+
+            return $this;
+        } else {
+
+            throw new Exception('Datas is not a array');
+        }
     }
 
     public function header(array $keys = []): CsvParser
     {
 
+        $this->keys = $keys;
+
         $first_item = current($this->datas);
 
-        if (count($first_item) == count($keys)) {
+        if (count($first_item) == count($this->keys)) {
 
             $datas = [];
 
-            foreach ($this->datas as $key => $value) {
+            if (is_array($this->datas)) {
 
-                $datas[] = array_combine($keys, $value);
+                foreach ($this->datas as $key => $value) {
+
+                    $datas[] = array_combine($this->keys, $value);
+                }
+
+                $this->datas = $datas;
+            } else {
+
+                throw new Exception('Datas is not a array');
+            }
+        }
+
+        return $this;
+    }
+
+    public function where(string $key, string $operator, string|array $value): CsvParser
+    {
+
+        if (is_array($this->datas)) {
+
+            $operator = in_array($operator, ['<>']) ? '!=' : $operator;
+
+            $datas = [];
+
+            foreach ($this->datas as $item) {
+
+                if (array_key_exists($key, $item)) {
+
+                    switch ($operator) {
+                        case '=':
+                            if ($item[$key] ==  $value) {
+                                $datas[] = $item;
+                            }
+                            break;
+                        case '!=':
+                            if ($item[$key] !=  $value) {
+                                $datas[] = $item;
+                            }
+                            break;
+                        case '>':
+                            if ($item[$key] >  $value) {
+                                $datas[] = $item;
+                            }
+                            break;
+                        case '>=':
+                            if ($item[$key] >=  $value) {
+                                $datas[] = $item;
+                            }
+                            break;
+                        case '<':
+                            if ($item[$key] < $value) {
+                                $datas[] = $item;
+                            }
+                            break;
+                        case '<=':
+                            if ($item[$key] <= $value) {
+                                $datas[] = $item;
+                            }
+                            break;
+                        case 'like':
+                            if (stripos($item[$key], $value) !== false) {
+                                $datas[] = $item;
+                            }
+                            break;
+                        case 'between':
+                            if (
+                                is_array($value) &&
+                                $item[$key] >= current($value) &&
+                                $item[$key] <= end($value)
+                            ) {
+                                $datas[] = $item;
+                            }
+                            break;
+                        case 'in':
+                            if (
+                                is_array($value) &&
+                                in_array($item[$key], $value)
+                            ) {
+                                $datas[] = $item;
+                            }
+                            break;
+                    }
+                }
             }
 
             $this->datas = $datas;
-        }
 
-        return $this;
+            return $this;
+        } else {
+
+            throw new Exception('Datas is not a array');
+        }
     }
 
-    public function partial(int $first = 0, int|string $end = ''): CsvParser
+    public function chunk(int $length): CsvParser
     {
 
-        $datas = [];
-
-        foreach ($this->datas as $key => $value) {
-
-            if ($key >= $first && !is_int($end)) {
-
-                $datas[] = $value;
-            } elseif ($key >= $first && is_int($end) && $key <= $end) {
-
-                $datas[] = $value;
-            }
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
         }
 
-        $this->datas = $datas;
-
-        return $this;
-    }
-
-    public function where(string $key, string|null $operator, string $value): CsvParser
-    {
-
-        $operator = in_array($operator, ['<>']) ? '!=' : $operator;
-
-        $datas = [];
-
-        foreach ($this->datas as $item) {
-
-            if (array_key_exists($key, $item)) {
-
-                switch ($operator) {
-                    case '=':
-                        if ($item[$key] ==  $value) {
-                            $datas[] = $item;
-                        }
-                        break;
-                    case '!=':
-                        if ($item[$key] !=  $value) {
-                            $datas[] = $item;
-                        }
-                        break;
-                    case '>':
-                        if ($item[$key] >  $value) {
-                            $datas[] = $item;
-                        }
-                        break;
-                    case '>=':
-                        if ($item[$key] >=  $value) {
-                            $datas[] = $item;
-                        }
-                        break;
-                    case '<':
-                        if ($item[$key] < $value) {
-                            $datas[] = $item;
-                        }
-                        break;
-                    case '<=':
-                        if ($item[$key] <= $value) {
-                            $datas[] = $item;
-                        }
-                        break;
-                    case 'like':
-                        if (stripos($item[$key], $value) !== false) {
-                            $datas[] = $item;
-                        }
-                        break;
-                }
-            }
-        }
-
-        $this->datas = $datas;
+        $this->datas = array_chunk($this->datas, $length);
 
         return $this;
     }
 
     public function groupeBy(string $key): CsvParser
     {
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
 
         $datas = [];
 
@@ -205,24 +306,117 @@ class CsvParser
     {
     }
 
+    public function first(): CsvParser
+    {
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
+
+        $this->datas = current($this->datas);
+        return $this;
+    }
+
+    public function last(): CsvParser
+    {
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
+
+        $this->datas = end($this->datas);
+        return $this;
+    }
+
+    //----------------------- Convertisseur -------------------//
+
     public function toJson(): CsvParser
     {
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
+
         $this->datas = json_encode($this->datas);
         return $this;
     }
 
-    public function toCsv(string $separator)
+    public function toCsv(string $separator): CsvParser
     {
-        # code...
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
+
+        return $this->datas;
     }
 
-    public function toSql()
+    public function toObject(): CsvParser
     {
-        # code...
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
+
+        $datas = new \stdClass;
+        foreach ($this->datas as $key => $value) {
+            $datas->{$key} = (object) $value;
+        }
+
+        $this->datas = $datas;
+
+        return $this;
+    }
+
+    public function toSql(): CsvParser
+    {
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
+
+        return $this;
+    }
+
+    //----------------------- Fin de requete -------------------//
+
+    public function keys(): array
+    {
+
+        if (!is_array($this->keys)) {
+            throw new Exception('Keys is not a array');
+        }
+
+        return $this->keys;
+    }
+
+    public function sum(string $key): float
+    {
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
+
+        $total = 0;
+
+        foreach ($this->datas as $value) {
+
+            if (isset($value[$key])) {
+
+                $total += doubleval($value[$key]);
+            }
+        }
+
+        return $total;
     }
 
     public function count(): int
     {
+
+        if (!is_array($this->datas)) {
+            throw new Exception('Datas is not a array');
+        }
+
         return count($this->datas);
     }
 
@@ -248,7 +442,7 @@ class CsvParser
         }
     }
 
-    public function get()
+    public function get(): array|string|object
     {
         return $this->datas;
     }
